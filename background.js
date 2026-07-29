@@ -208,4 +208,4 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 });
 
 // fflate is vendored locally (no external network calls at runtime) - see lib/fflate.min.js
-importScripts('lib/fflate.min.js');
+importScripts(chrome.runtime.getURL('lib/fflate.min.js'));
