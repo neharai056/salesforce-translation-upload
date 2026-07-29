@@ -43,18 +43,20 @@ function buildApiHostCandidates(host, cookieDomain) {
 
   const rawHost = normalizeHost(host);
   add(rawHost);
-  add(rawHost.replace(/\.lightning\.force\.com$/i, '.my.salesforce.com'));
-  add(rawHost.replace(/\.salesforce-setup\.com$/i, '.my.salesforce.com'));
   add(rawHost.replace(/\.develop\./, '.'));
-  add(rawHost.replace(/\.develop\./, '.').replace(/\.salesforce-setup\.com$/i, '.my.salesforce.com'));
+  add(rawHost.replace(/\.develop\./, '.').replace(/\.my\.salesforce-setup\.com$/i, '.my.salesforce.com'));
   add(rawHost.replace(/\.my\.salesforce-setup\.com$/i, '.my.salesforce.com'));
   add(rawHost.replace(/\.my\.salesforce\.com$/i, '.my.salesforce.com'));
+  add(rawHost.replace(/\.lightning\.force\.com$/i, '.my.salesforce.com'));
+  add(rawHost.replace(/\.salesforce\.com$/i, '.my.salesforce.com'));
+  add(rawHost.replace(/\.force\.com$/i, '.my.salesforce.com'));
 
   if (cookieDomain) {
     const domain = normalizeHost(cookieDomain);
     add(domain);
+    add(domain.replace(/\.develop\./, '.'));
     add(domain.replace(/\.my\.salesforce-setup\.com$/i, '.my.salesforce.com'));
-    add(domain.replace(/\.salesforce-setup\.com$/i, '.my.salesforce.com'));
+    add(domain.replace(/\.my\.salesforce\.com$/i, '.my.salesforce.com'));
   }
 
   return Array.from(candidates);
@@ -86,19 +88,22 @@ async function getSession(host) {
 }
 
 // ---------- REST query fallback - default-language values ----------
-async function queryRecords(session, soql, { useTooling = true } = {}) {
+async function queryRecords(session, soqls, { useTooling = true } = {}) {
   const baseUrl = session.apiBaseUrl || `https://${session.host}`;
+  const queries = Array.isArray(soqls) ? soqls : [soqls];
   const endpoints = [];
 
-  if (useTooling) {
-    endpoints.push(`${baseUrl}/services/data/v${API_VERSION}/tooling/query/?q=${encodeURIComponent(soql)}`);
-  }
-  endpoints.push(`${baseUrl}/services/data/v${API_VERSION}/query/?q=${encodeURIComponent(soql)}`);
+  queries.forEach((soql) => {
+    if (useTooling) {
+      endpoints.push({ url: `${baseUrl}/services/data/v${API_VERSION}/tooling/query/?q=${encodeURIComponent(soql)}` });
+    }
+    endpoints.push({ url: `${baseUrl}/services/data/v${API_VERSION}/query/?q=${encodeURIComponent(soql)}` });
+  });
 
   let lastError = 'No query endpoint responded successfully.';
-  for (const url of endpoints) {
+  for (const endpoint of endpoints) {
     try {
-      const res = await fetch(url, {
+      const res = await fetch(endpoint.url, {
         headers: { Authorization: `Bearer ${session.sessionId}` }
       });
       const text = await res.text();
@@ -108,7 +113,10 @@ async function queryRecords(session, soql, { useTooling = true } = {}) {
       }
       try {
         const data = JSON.parse(text);
-        return data.records || [];
+        if (Array.isArray(data.records) && data.records.length) {
+          return data.records;
+        }
+        lastError = 'Query returned no records.';
       } catch {
         lastError = text || 'Query returned invalid JSON.';
       }
@@ -122,7 +130,10 @@ async function queryRecords(session, soql, { useTooling = true } = {}) {
 
 async function getCustomLabels(session) {
   try {
-    return await queryRecords(session, "SELECT Id, Name, MasterLabel, Value FROM CustomLabel ORDER BY Name", { useTooling: false });
+    return await queryRecords(session, [
+      "SELECT Id, Name, MasterLabel, Value FROM ExternalString ORDER BY Name",
+      "SELECT Id, Name, MasterLabel, Value FROM CustomLabel ORDER BY Name"
+    ], { useTooling: true });
   } catch {
     return [];
   }
@@ -130,7 +141,10 @@ async function getCustomLabels(session) {
 
 async function getValidationRules(session) {
   try {
-    return await queryRecords(session, "SELECT Id, ValidationName, Active, ErrorMessage, EntityDefinition.QualifiedApiName FROM ValidationRule ORDER BY EntityDefinition.QualifiedApiName, ValidationName", { useTooling: false });
+    return await queryRecords(session, [
+      "SELECT Id, ValidationName, Active, ErrorMessage, EntityDefinition.QualifiedApiName FROM ValidationRule ORDER BY EntityDefinition.QualifiedApiName, ValidationName",
+      "SELECT Id, ValidationName, Active, ErrorMessage FROM ValidationRule ORDER BY ValidationName"
+    ], { useTooling: true });
   } catch {
     return [];
   }
@@ -191,106 +205,118 @@ function allOf(doc, tagName) {
 
 // Discover active Translation Workbench languages by listing existing .translation files.
 async function listTranslationLanguages(session) {
-  const body = `<met:listMetadata xmlns:met="http://soap.sforce.com/2006/04/metadata">
-    <met:queries><met:type>Translations</met:type></met:queries>
-    <met:asOfVersion>${API_VERSION}</met:asOfVersion>
-  </met:listMetadata>`;
-  const doc = await soapCall(session, '""', body);
-  return allOf(doc, 'result')
-    .map(r => r.getElementsByTagName('fullName')[0]?.textContent)
-    .filter(Boolean); // e.g. ['en_US', 'fr', 'ja']
+  try {
+    const body = `<met:listMetadata xmlns:met="http://soap.sforce.com/2006/04/metadata">
+      <met:queries><met:type>Translations</met:type></met:queries>
+      <met:asOfVersion>${API_VERSION}</met:asOfVersion>
+    </met:listMetadata>`;
+    const doc = await soapCall(session, '""', body);
+    return allOf(doc, 'result')
+      .map(r => r.getElementsByTagName('fullName')[0]?.textContent)
+      .filter(Boolean); // e.g. ['en_US', 'fr', 'ja']
+  } catch {
+    return [];
+  }
 }
 
 // Submit a retrieve request for the Translations metadata of given languages, poll until done, return { lang: xmlString }.
 async function retrieveTranslations(session, languages) {
-  const members = languages.map(l => `<met:members>${l}</met:members>`).join('');
-  const body = `<met:retrieve xmlns:met="http://soap.sforce.com/2006/04/metadata">
-    <met:retrieveRequest>
-      <met:apiVersion>${API_VERSION}</met:apiVersion>
-      <met:singlePackage>true</met:singlePackage>
-      <met:unpackaged>
-        <met:types><met:members>*</met:members><met:name>Translations</met:name></met:types>
-        <met:version>${API_VERSION}</met:version>
-      </met:unpackaged>
-    </met:retrieveRequest>
-  </met:retrieve>`;
-  const submitDoc = await soapCall(session, '""', body);
-  const jobId = textOf(submitDoc, 'id');
-  if (!jobId) throw new Error('Retrieve submit did not return a job id.');
+  try {
+    const members = languages.map(l => `<met:members>${l}</met:members>`).join('');
+    const body = `<met:retrieve xmlns:met="http://soap.sforce.com/2006/04/metadata">
+      <met:retrieveRequest>
+        <met:apiVersion>${API_VERSION}</met:apiVersion>
+        <met:singlePackage>true</met:singlePackage>
+        <met:unpackaged>
+          <met:types><met:members>*</met:members><met:name>Translations</met:name></met:types>
+          <met:version>${API_VERSION}</met:version>
+        </met:unpackaged>
+      </met:retrieveRequest>
+    </met:retrieve>`;
+    const submitDoc = await soapCall(session, '""', body);
+    const jobId = textOf(submitDoc, 'id');
+    if (!jobId) throw new Error('Retrieve submit did not return a job id.');
 
-  // Poll
-  let zipBase64 = null;
-  for (let i = 0; i < 30; i++) {
-    await new Promise(r => setTimeout(r, 2000));
-    const statusBody = `<met:checkRetrieveStatus xmlns:met="http://soap.sforce.com/2006/04/metadata">
-      <met:asyncProcessId>${jobId}</met:asyncProcessId>
-      <met:includeZip>true</met:includeZip>
-    </met:checkRetrieveStatus>`;
-    const statusDoc = await soapCall(session, '""', statusBody);
-    const done = textOf(statusDoc, 'done');
-    if (done === 'true') {
-      zipBase64 = textOf(statusDoc, 'zipFile');
-      break;
+    // Poll
+    let zipBase64 = null;
+    for (let i = 0; i < 30; i++) {
+      await new Promise(r => setTimeout(r, 2000));
+      const statusBody = `<met:checkRetrieveStatus xmlns:met="http://soap.sforce.com/2006/04/metadata">
+        <met:asyncProcessId>${jobId}</met:asyncProcessId>
+        <met:includeZip>true</met:includeZip>
+      </met:checkRetrieveStatus>`;
+      const statusDoc = await soapCall(session, '""', statusBody);
+      const done = textOf(statusDoc, 'done');
+      if (done === 'true') {
+        zipBase64 = textOf(statusDoc, 'zipFile');
+        break;
+      }
     }
-  }
-  if (!zipBase64) throw new Error('Retrieve timed out after ~60s.');
+    if (!zipBase64) throw new Error('Retrieve timed out after ~60s.');
 
-  // Unzip in the service worker using fflate (vendored in lib/fflate.min.js)
-  const fflate = await ensureFflate();
-  const zipBytes = Uint8Array.from(atob(zipBase64), c => c.charCodeAt(0));
-  const files = fflate.unzipSync(zipBytes);
-  const result = {};
-  const decoder = new TextDecoder();
-  for (const [path, bytes] of Object.entries(files)) {
-    const m = path.match(/translations\/([^/]+)\.translation$/);
-    if (m) result[m[1]] = decoder.decode(bytes);
+    // Unzip in the service worker using fflate (vendored in lib/fflate.min.js)
+    const fflate = await ensureFflate();
+    const zipBytes = Uint8Array.from(atob(zipBase64), c => c.charCodeAt(0));
+    const files = fflate.unzipSync(zipBytes);
+    const result = {};
+    const decoder = new TextDecoder();
+    for (const [path, bytes] of Object.entries(files)) {
+      const m = path.match(/translations\/([^/]+)\.translation$/);
+      if (m) result[m[1]] = decoder.decode(bytes);
+    }
+    return result; // { en_US: '<Translations>...</Translations>', fr: '...' }
+  } catch {
+    return {};
   }
-  return result; // { en_US: '<Translations>...</Translations>', fr: '...' }
 }
 
 // Deploy edited translation XML files back. `edited` is { lang: xmlString }.
 async function deployTranslations(session, edited) {
-  const encoder = new TextEncoder();
-  const fflate = await ensureFflate();
-  const zipInput = {
-    'unpackaged/package.xml': encoder.encode(
-      `<?xml version="1.0" encoding="UTF-8"?><Package xmlns="http://soap.sforce.com/2006/04/metadata">
-        <types><members>*</members><name>Translations</name></types>
-        <version>${API_VERSION}</version></Package>`
-    )
-  };
-  for (const [lang, xml] of Object.entries(edited)) {
-    zipInput[`unpackaged/translations/${lang}.translation`] = encoder.encode(xml);
-  }
-  const zipped = fflate.zipSync(zipInput);
-  let binary = '';
-  zipped.forEach(b => (binary += String.fromCharCode(b)));
-  const zipBase64 = btoa(binary);
-
-  const body = `<met:deploy xmlns:met="http://soap.sforce.com/2006/04/metadata">
-    <met:ZipFile>${zipBase64}</met:ZipFile>
-    <met:DeployOptions><met:singlePackage>true</met:singlePackage><met:rollbackOnError>true</met:rollbackOnError></met:DeployOptions>
-  </met:deploy>`;
-  const submitDoc = await soapCall(session, '""', body);
-  const jobId = textOf(submitDoc, 'id');
-  if (!jobId) throw new Error('Deploy submit did not return a job id.');
-
-  for (let i = 0; i < 30; i++) {
-    await new Promise(r => setTimeout(r, 2000));
-    const statusBody = `<met:checkDeployStatus xmlns:met="http://soap.sforce.com/2006/04/metadata">
-      <met:asyncProcessId>${jobId}</met:asyncProcessId>
-      <met:includeDetails>true</met:includeDetails>
-    </met:checkDeployStatus>`;
-    const statusDoc = await soapCall(session, '""', statusBody);
-    const done = textOf(statusDoc, 'done');
-    if (done === 'true') {
-      const success = textOf(statusDoc, 'success');
-      if (success === 'true') return { success: true };
-      const messages = allOf(statusDoc, 'componentFailures').map(f => textOf.call(null, { getElementsByTagName: t => f.getElementsByTagName(t) }, 'problem'));
-      return { success: false, errors: messages };
+  try {
+    const encoder = new TextEncoder();
+    const fflate = await ensureFflate();
+    const zipInput = {
+      'unpackaged/package.xml': encoder.encode(
+        `<?xml version="1.0" encoding="UTF-8"?><Package xmlns="http://soap.sforce.com/2006/04/metadata">
+          <types><members>*</members><name>Translations</name></types>
+          <version>${API_VERSION}</version></Package>`
+      )
+    };
+    for (const [lang, xml] of Object.entries(edited)) {
+      zipInput[`unpackaged/translations/${lang}.translation`] = encoder.encode(xml);
     }
+    const zipped = fflate.zipSync(zipInput);
+    let binary = '';
+    zipped.forEach(b => (binary += String.fromCharCode(b)));
+    const zipBase64 = btoa(binary);
+
+    const body = `<met:deploy xmlns:met="http://soap.sforce.com/2006/04/metadata">
+      <met:ZipFile>${zipBase64}</met:ZipFile>
+      <met:DeployOptions><met:singlePackage>true</met:singlePackage><met:rollbackOnError>true</met:rollbackOnError></met:DeployOptions>
+    </met:deploy>`;
+    const submitDoc = await soapCall(session, '""', body);
+    const jobId = textOf(submitDoc, 'id');
+    if (!jobId) throw new Error('Deploy submit did not return a job id.');
+
+    for (let i = 0; i < 30; i++) {
+      await new Promise(r => setTimeout(r, 2000));
+      const statusBody = `<met:checkDeployStatus xmlns:met="http://soap.sforce.com/2006/04/metadata">
+        <met:asyncProcessId>${jobId}</met:asyncProcessId>
+        <met:includeDetails>true</met:includeDetails>
+      </met:checkDeployStatus>`;
+      const statusDoc = await soapCall(session, '""', statusBody);
+      const done = textOf(statusDoc, 'done');
+      if (done === 'true') {
+        const success = textOf(statusDoc, 'success');
+        if (success === 'true') return { success: true };
+        const messages = allOf(statusDoc, 'componentFailures').map(f => textOf.call(null, { getElementsByTagName: t => f.getElementsByTagName(t) }, 'problem'));
+        return { success: false, errors: messages };
+      }
+    }
+    throw new Error('Deploy timed out after ~60s.');
+  } catch (e) {
+    return { success: false, errors: [e.message || 'Deploy failed'] };
   }
-  throw new Error('Deploy timed out after ~60s.');
 }
 
 // ---------- Message router ----------
