@@ -105,6 +105,9 @@ async function soapCall(session, soapAction, bodyXml) {
     if (errorText.includes('Cannot use: Translations in this organization')) {
       throw new Error('This org does not support Translation metadata operations.');
     }
+    if (errorText.includes('Only POST allowed') || res.status === 405) {
+      throw new Error('This Salesforce org is rejecting Metadata API SOAP requests. The endpoint may be unavailable or blocked for this session.');
+    }
     throw new Error(`Metadata SOAP call failed (${res.status}): ${errorText}`);
   }
   return parseSoapXml(text);

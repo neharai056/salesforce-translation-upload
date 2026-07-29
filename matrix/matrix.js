@@ -100,6 +100,8 @@ async function loadAll() {
     const message = e.message || 'Unknown error';
     if (message.includes('Translation metadata operations')) {
       loadingEl.textContent = 'This org does not support Translation metadata operations. The extension cannot read or write translation files from this org.';
+    } else if (message.includes('SOAP requests') || message.includes('Only POST allowed')) {
+      loadingEl.textContent = 'This Salesforce org is rejecting Metadata API SOAP requests. The extension cannot access translation metadata from this session.';
     } else if (message.includes('Tooling API')) {
       loadingEl.textContent = 'The Salesforce Tooling API is not available for this session. Please ensure you are logged into the org and have access to the required objects.';
     } else {
