@@ -11,7 +11,8 @@ btn.addEventListener('click', async () => {
     statusEl.textContent = 'Could not read the current tab URL.';
     return;
   }
-  if (!/\.(salesforce\.com|force\.com)$/.test(host)) {
+  const isSalesforceHost = /(^|\.)((salesforce\.com|force\.com|salesforce-setup\.com|my\.salesforce\.com|my\.salesforce-setup\.com))$/.test(host);
+  if (!isSalesforceHost) {
     statusEl.textContent = 'Open a Salesforce tab (Setup, Lightning, etc.) first.';
     return;
   }
