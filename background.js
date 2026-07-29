@@ -4,6 +4,30 @@
 
 const API_VERSION = '61.0';
 
+let fflateLib = null;
+
+async function ensureFflate() {
+  if (fflateLib) return fflateLib;
+
+  const url = chrome.runtime.getURL('lib/fflate.min.js');
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Failed to load fflate from ${url}: ${response.status}`);
+  }
+
+  const source = await response.text();
+  const previous = globalThis.fflate;
+  eval(source);
+  const loaded = globalThis.fflate || previous;
+
+  if (!loaded || typeof loaded.unzipSync !== 'function' || typeof loaded.zipSync !== 'function') {
+    throw new Error('fflate did not initialize correctly');
+  }
+
+  fflateLib = loaded;
+  return fflateLib;
+}
+
 // ---------- Session discovery ----------
 // Reads the 'sid' cookie for whatever org host the user opened the extension from.
 async function getSession(host) {
@@ -118,6 +142,7 @@ async function retrieveTranslations(session, languages) {
   if (!zipBase64) throw new Error('Retrieve timed out after ~60s.');
 
   // Unzip in the service worker using fflate (vendored in lib/fflate.min.js)
+  const fflate = await ensureFflate();
   const zipBytes = Uint8Array.from(atob(zipBase64), c => c.charCodeAt(0));
   const files = fflate.unzipSync(zipBytes);
   const result = {};
@@ -132,6 +157,7 @@ async function retrieveTranslations(session, languages) {
 // Deploy edited translation XML files back. `edited` is { lang: xmlString }.
 async function deployTranslations(session, edited) {
   const encoder = new TextEncoder();
+  const fflate = await ensureFflate();
   const zipInput = {
     'unpackaged/package.xml': encoder.encode(
       `<?xml version="1.0" encoding="UTF-8"?><Package xmlns="http://soap.sforce.com/2006/04/metadata">
@@ -207,5 +233,3 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   return true; // keep the message channel open for async sendResponse
 });
 
-// fflate is vendored locally (no external network calls at runtime) - see lib/fflate.min.js
-importScripts(chrome.runtime.getURL('lib/fflate.min.js'));
