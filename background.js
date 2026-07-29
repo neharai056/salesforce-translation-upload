@@ -83,7 +83,13 @@ async function soapCall(session, soapAction, bodyXml) {
     body: soapEnvelope(session.sessionId, bodyXml)
   });
   const text = await res.text();
-  if (!res.ok) throw new Error(`Metadata SOAP call failed (${res.status}): ${text}`);
+  if (!res.ok) {
+    const errorText = text || 'Unknown SOAP error';
+    if (errorText.includes('Cannot use: Translations in this organization')) {
+      throw new Error('This org does not support Translation metadata operations.');
+    }
+    throw new Error(`Metadata SOAP call failed (${res.status}): ${errorText}`);
+  }
   return new DOMParser().parseFromString(text, 'text/xml');
 }
 

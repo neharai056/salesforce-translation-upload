@@ -91,7 +91,12 @@ async function loadAll() {
     loadingEl.hidden = true;
     render();
   } catch (e) {
-    loadingEl.textContent = `Failed to load: ${e.message}`;
+    const message = e.message || 'Unknown error';
+    if (message.includes('Translation metadata operations')) {
+      loadingEl.textContent = 'This org does not support Translation metadata operations. The extension cannot read or write translation files from this org.';
+    } else {
+      loadingEl.textContent = `Failed to load: ${message}`;
+    }
   }
 }
 
