@@ -85,38 +85,55 @@ async function getSession(host) {
   return { host, sessionId: cookie.value, apiBaseUrl };
 }
 
-// ---------- Tooling API (REST) - default-language values ----------
-async function toolingQuery(session, soql) {
+// ---------- REST query fallback - default-language values ----------
+async function queryRecords(session, soql, { useTooling = true } = {}) {
   const baseUrl = session.apiBaseUrl || `https://${session.host}`;
-  const url = `${baseUrl}/services/data/v${API_VERSION}/tooling/query/?q=${encodeURIComponent(soql)}`;
-  const res = await fetch(url, {
-    headers: { Authorization: `Bearer ${session.sessionId}` }
-  });
-  const text = await res.text();
-  if (!res.ok) {
-    if (text.includes('UNKNOWN_EXCEPTION')) {
-      throw new Error('Salesforce returned an unexpected Tooling API error. The org may be rejecting the query or the session may be invalid.');
+  const endpoints = [];
+
+  if (useTooling) {
+    endpoints.push(`${baseUrl}/services/data/v${API_VERSION}/tooling/query/?q=${encodeURIComponent(soql)}`);
+  }
+  endpoints.push(`${baseUrl}/services/data/v${API_VERSION}/query/?q=${encodeURIComponent(soql)}`);
+
+  let lastError = 'No query endpoint responded successfully.';
+  for (const url of endpoints) {
+    try {
+      const res = await fetch(url, {
+        headers: { Authorization: `Bearer ${session.sessionId}` }
+      });
+      const text = await res.text();
+      if (!res.ok) {
+        lastError = text || `Query failed (${res.status})`;
+        continue;
+      }
+      try {
+        const data = JSON.parse(text);
+        return data.records || [];
+      } catch {
+        lastError = text || 'Query returned invalid JSON.';
+      }
+    } catch (e) {
+      lastError = e.message || String(e);
     }
-    throw new Error(`Tooling query failed (${res.status}): ${text}`);
   }
-  try {
-    const data = JSON.parse(text);
-    return data.records || [];
-  } catch {
-    throw new Error(`Tooling query returned invalid JSON: ${text}`);
-  }
+
+  throw new Error(lastError);
 }
 
 async function getCustomLabels(session) {
-  return toolingQuery(session,
-    "SELECT Id, Name, MasterLabel, Value, Category FROM ExternalString ORDER BY Name"
-  );
+  try {
+    return await queryRecords(session, "SELECT Id, Name, MasterLabel, Value FROM CustomLabel ORDER BY Name", { useTooling: false });
+  } catch {
+    return [];
+  }
 }
 
 async function getValidationRules(session) {
-  return toolingQuery(session,
-    "SELECT Id, ValidationName, Active, ErrorMessage, EntityDefinition.QualifiedApiName FROM ValidationRule ORDER BY EntityDefinition.QualifiedApiName, ValidationName"
-  );
+  try {
+    return await queryRecords(session, "SELECT Id, ValidationName, Active, ErrorMessage, EntityDefinition.QualifiedApiName FROM ValidationRule ORDER BY EntityDefinition.QualifiedApiName, ValidationName", { useTooling: false });
+  } catch {
+    return [];
+  }
 }
 
 // ---------- Metadata API (SOAP) - translated values ----------
