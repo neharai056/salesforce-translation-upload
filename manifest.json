@@ -1,0 +1,18 @@
+{
+  "manifest_version": 3,
+  "name": "Salesforce Translation Matrix",
+  "version": "0.1.0",
+  "description": "Spreadsheet-style editor for Custom Label and Validation Rule translations across all org languages.",
+  "permissions": ["cookies", "storage", "tabs"],
+  "host_permissions": [
+    "https://*.salesforce.com/*",
+    "https://*.force.com/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Open Translation Matrix"
+  },
+  "background": {
+    "service_worker": "background.js"
+  }
+}

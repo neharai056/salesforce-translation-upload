@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>Translation Matrix</title>
+  <link rel="stylesheet" href="matrix.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark">⛶</span>
+      <span class="brand-name">Translation Matrix</span>
+      <span class="org-host" id="orgHost"></span>
+    </div>
+    <div class="tabs" role="tablist">
+      <button class="tab active" data-tab="labels">Custom Labels</button>
+      <button class="tab" data-tab="rules">Validation Rules</button>
+    </div>
+    <input class="search" id="search" type="text" placeholder="Filter by name…" />
+  </header>
+
+  <main id="tableWrap" class="table-wrap">
+    <div class="loading" id="loading">Loading org languages and metadata…</div>
+    <table id="grid" class="grid" hidden></table>
+  </main>
+
+  <footer class="savebar" id="savebar" hidden>
+    <span class="diff-count" id="diffCount">0 unsaved changes</span>
+    <button class="btn-ghost" id="discardBtn">Discard</button>
+    <button class="btn-primary" id="saveBtn">Save changes</button>
+  </footer>
+
+  <script src="../lib/fflate.min.js"></script>
+  <script src="matrix.js"></script>
+</body>
+</html>

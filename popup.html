@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <style>
+    body { font-family: -apple-system, "Segoe UI", sans-serif; width: 260px; padding: 16px; background: #12181f; color: #e7ecf1; }
+    h1 { font-size: 14px; margin: 0 0 12px; font-weight: 600; letter-spacing: 0.2px; }
+    p { font-size: 12px; color: #8a97a6; margin: 0 0 14px; line-height: 1.5; }
+    button { width: 100%; padding: 10px; border: none; border-radius: 6px; background: #2f7dfa; color: white; font-size: 13px; font-weight: 600; cursor: pointer; }
+    button:hover { background: #4c8dfb; }
+    button:disabled { background: #33404f; color: #6b7789; cursor: not-allowed; }
+    .status { font-size: 11px; color: #6b7789; margin-top: 10px; }
+  </style>
+</head>
+<body>
+  <h1>Translation Matrix</h1>
+  <p>Opens a spreadsheet view of Custom Label and Validation Rule translations for the org in your current tab.</p>
+  <button id="launch">Open matrix</button>
+  <div class="status" id="status"></div>
+  <script src="popup.js"></script>
+</body>
+</html>
