@@ -30,17 +30,65 @@ async function ensureFflate() {
 
 // ---------- Session discovery ----------
 // Reads the 'sid' cookie for whatever org host the user opened the extension from.
+function normalizeHost(value) {
+  return (value || '').replace(/^https?:\/\//i, '').replace(/\/$/, '').replace(/^\./, '');
+}
+
+function buildApiHostCandidates(host, cookieDomain) {
+  const candidates = new Set();
+  const add = (value) => {
+    const normalized = normalizeHost(value);
+    if (normalized) candidates.add(normalized);
+  };
+
+  const rawHost = normalizeHost(host);
+  add(rawHost);
+  add(rawHost.replace(/\.lightning\.force\.com$/i, '.my.salesforce.com'));
+  add(rawHost.replace(/\.salesforce-setup\.com$/i, '.my.salesforce.com'));
+  add(rawHost.replace(/\.develop\./, '.'));
+  add(rawHost.replace(/\.develop\./, '.').replace(/\.salesforce-setup\.com$/i, '.my.salesforce.com'));
+  add(rawHost.replace(/\.my\.salesforce-setup\.com$/i, '.my.salesforce.com'));
+  add(rawHost.replace(/\.my\.salesforce\.com$/i, '.my.salesforce.com'));
+
+  if (cookieDomain) {
+    const domain = normalizeHost(cookieDomain);
+    add(domain);
+    add(domain.replace(/\.my\.salesforce-setup\.com$/i, '.my.salesforce.com'));
+    add(domain.replace(/\.salesforce-setup\.com$/i, '.my.salesforce.com'));
+  }
+
+  return Array.from(candidates);
+}
+
+async function resolveApiBaseUrl(host, sessionId, cookieDomain) {
+  const candidates = buildApiHostCandidates(host, cookieDomain);
+  for (const candidate of candidates) {
+    try {
+      const res = await fetch(`https://${candidate}/services/data/v${API_VERSION}/`, {
+        headers: { Authorization: `Bearer ${sessionId}` },
+        cache: 'no-store'
+      });
+      if (res.status !== 404 && res.status !== 405 && res.status !== 500) {
+        return `https://${candidate}`;
+      }
+    } catch (_) {}
+  }
+  return `https://${normalizeHost(host)}`;
+}
+
 async function getSession(host) {
   const cookie = await chrome.cookies.get({ url: `https://${host}`, name: 'sid' });
   if (!cookie) {
     throw new Error(`No active Salesforce session found for ${host}. Open Setup in that org first, then reopen the matrix.`);
   }
-  return { host, sessionId: cookie.value };
+  const apiBaseUrl = await resolveApiBaseUrl(host, cookie.value, cookie.domain);
+  return { host, sessionId: cookie.value, apiBaseUrl };
 }
 
 // ---------- Tooling API (REST) - default-language values ----------
 async function toolingQuery(session, soql) {
-  const url = `https://${session.host}/services/data/v${API_VERSION}/tooling/query/?q=${encodeURIComponent(soql)}`;
+  const baseUrl = session.apiBaseUrl || `https://${session.host}`;
+  const url = `${baseUrl}/services/data/v${API_VERSION}/tooling/query/?q=${encodeURIComponent(soql)}`;
   const res = await fetch(url, {
     headers: { Authorization: `Bearer ${session.sessionId}` }
   });
@@ -90,7 +138,8 @@ function parseSoapXml(text) {
 }
 
 async function soapCall(session, soapAction, bodyXml) {
-  const url = `https://${session.host}/services/Soap/m/${API_VERSION}`;
+  const baseUrl = session.apiBaseUrl || `https://${session.host}`;
+  const url = `${baseUrl}/services/Soap/m/${API_VERSION}`;
   const res = await fetch(url, {
     method: 'POST',
     headers: {

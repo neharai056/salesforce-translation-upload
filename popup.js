@@ -16,5 +16,18 @@ btn.addEventListener('click', async () => {
     statusEl.textContent = 'Open a Salesforce tab (Setup, Lightning, etc.) first.';
     return;
   }
+
+  statusEl.textContent = 'Checking Salesforce session…';
+  try {
+    const session = await chrome.runtime.sendMessage({ host, type: 'GET_SESSION' });
+    if (!session?.ok || !session?.data?.sessionId) {
+      statusEl.textContent = 'Unable to read a valid Salesforce session from this tab. Open a logged-in org tab and try again.';
+      return;
+    }
+  } catch (e) {
+    statusEl.textContent = 'Unable to reach the Salesforce session service. Reload the extension and try again.';
+    return;
+  }
+
   chrome.tabs.create({ url: chrome.runtime.getURL(`matrix/matrix.html?host=${encodeURIComponent(host)}`) });
 });
