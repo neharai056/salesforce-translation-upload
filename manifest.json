@@ -6,7 +6,10 @@
   "permissions": ["cookies", "storage", "tabs"],
   "host_permissions": [
     "https://*.salesforce.com/*",
-    "https://*.force.com/*"
+    "https://*.force.com/*",
+    "https://*.salesforce-setup.com/*",
+    "https://*.my.salesforce.com/*",
+    "https://*.my.salesforce-setup.com/*"
   ],
   "action": {
     "default_popup": "popup.html",
