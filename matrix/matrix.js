@@ -25,10 +25,16 @@ function send(msg) {
 
 // ---------- XML helpers ----------
 function parseDoc(xml) {
-  return new DOMParser().parseFromString(xml, 'text/xml');
+  if (typeof DOMParser !== 'undefined') {
+    return new DOMParser().parseFromString(xml, 'text/xml');
+  }
+  return null;
 }
 function serializeDoc(doc) {
-  return '<?xml version="1.0" encoding="UTF-8"?>\n' + new XMLSerializer().serializeToString(doc);
+  if (typeof XMLSerializer !== 'undefined' && doc) {
+    return '<?xml version="1.0" encoding="UTF-8"?>\n' + new XMLSerializer().serializeToString(doc);
+  }
+  return '<?xml version="1.0" encoding="UTF-8"?>\n<Translations xmlns="http://soap.sforce.com/2006/04/metadata"></Translations>';
 }
 function emptyTranslationsDoc() {
   return parseDoc(`<Translations xmlns="${NS}"></Translations>`);

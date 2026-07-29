@@ -72,6 +72,13 @@ function soapEnvelope(sessionId, bodyXml) {
 </soapenv:Envelope>`;
 }
 
+function parseSoapXml(text) {
+  if (typeof DOMParser !== 'undefined') {
+    return new DOMParser().parseFromString(text, 'text/xml');
+  }
+  return null;
+}
+
 async function soapCall(session, soapAction, bodyXml) {
   const url = `https://${session.host}/services/Soap/m/${API_VERSION}`;
   const res = await fetch(url, {
@@ -90,14 +97,16 @@ async function soapCall(session, soapAction, bodyXml) {
     }
     throw new Error(`Metadata SOAP call failed (${res.status}): ${errorText}`);
   }
-  return new DOMParser().parseFromString(text, 'text/xml');
+  return parseSoapXml(text);
 }
 
 function textOf(doc, tagName) {
+  if (!doc) return null;
   const el = doc.getElementsByTagName(tagName)[0];
-  return el ? el.textContent : null;
+  return el ? (el.textContent || el.nodeValue || null) : null;
 }
 function allOf(doc, tagName) {
+  if (!doc) return [];
   return Array.from(doc.getElementsByTagName(tagName));
 }
 
