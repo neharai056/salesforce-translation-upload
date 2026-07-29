@@ -44,9 +44,19 @@ async function toolingQuery(session, soql) {
   const res = await fetch(url, {
     headers: { Authorization: `Bearer ${session.sessionId}` }
   });
-  if (!res.ok) throw new Error(`Tooling query failed (${res.status}): ${await res.text()}`);
-  const data = await res.json();
-  return data.records || [];
+  const text = await res.text();
+  if (!res.ok) {
+    if (text.includes('UNKNOWN_EXCEPTION')) {
+      throw new Error('Salesforce returned an unexpected Tooling API error. The org may be rejecting the query or the session may be invalid.');
+    }
+    throw new Error(`Tooling query failed (${res.status}): ${text}`);
+  }
+  try {
+    const data = JSON.parse(text);
+    return data.records || [];
+  } catch {
+    throw new Error(`Tooling query returned invalid JSON: ${text}`);
+  }
 }
 
 async function getCustomLabels(session) {
